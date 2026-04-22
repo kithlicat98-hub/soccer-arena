@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Soccer Arena</title>
+    <style>
+        :root { --primary: #f39c12; --bg: #2c3e50; --panel: #34495e; --text: #ecf0f1; }
+        body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Arial Black', sans-serif; color: var(--text); user-select: none; }
+        
+        /* UI Overlays */
+        .overlay { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; transition: opacity 0.3s; }
+        #menu-screen { background: linear-gradient(135deg, #1abc9c, #2980b9); }
+        
+        /* Pause Overlay */
+        #pause-screen { 
+            background: rgba(0, 0, 0, 0.7); 
+            backdrop-filter: blur(5px); 
+            display: none; 
+            z-index: 300;
+        }
+        
+        .menu-panel, .pause-content { background: rgba(0,0,0,0.8); padding: 40px; border-radius: 20px; border: 4px solid var(--primary); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 600px; }
+        
+        h1 { font-size: 50px; margin: 0 0 20px 0; color: var(--primary); text-transform: uppercase; text-shadow: 2px 2px 0 #000; }
+        
+        .form-group { display: flex; justify-content: space-between; margin-bottom: 15px; align-items: center; font-size: 18px; }
+        select, input { padding: 10px; border-radius: 5px; border: none; font-size: 16px; font-weight: bold; width: 200px; }
+        input[type="text"] { text-align: center; }
+        
+        .btn { background: var(--primary); color: #000; padding: 15px 30px; font-size: 24px; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; transition: transform 0.1s, background 0.2s; margin-top: 20px; width: 100%; text-transform: uppercase; }
+        .btn:hover { transform: scale(1.05); background: #f1c40f; }
+        .btn:active { transform: scale(0.95); }
+        .btn.secondary { background: #e74c3c; color: white; }
+        
+        #hud { position: absolute; top: 10px; left: 0; width: 100%; display: none; justify-content: center; z-index: 50; pointer-events: none; }
+        .scoreboard { background: rgba(0,0,0,0.8); border: 3px solid var(--primary); padding: 10px 30px; border-radius: 30px; display: flex; align-items: center; gap: 20px; font-size: 32px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .team-name { font-size: 20px; width: 150px; text-align: center; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #timer { color: var(--primary); font-family: monospace; font-size: 36px; margin: 0 20px; }
+        
+        #msg-board { position: absolute; top: 30%; width: 100%; text-align: center; font-size: 100px; color: var(--primary); text-shadow: 0 0 20px #000, 4px 4px 0 #000; display: none; z-index: 200; font-style: italic; }
+        
+        #controls-hint { position: absolute; bottom: 10px; width: 100%; text-align: center; color: rgba(255,255,255,0.7); font-size: 14px; pointer-events: none; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+
+    <div id="menu-screen" class="overlay">
+        <div class="menu-panel">
+            <h1>Ultimate Arena</h1>
+            <div class="form-group">
+                <label>Game Mode:</label>
+                <select id="mode-select">
+                    <option value="1vAI">1 Player vs AI</option>
+                    <option value="1v1">1v1 Local Multiplayer</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Match Time:</label>
+                <select id="time-select">
+                    <option value="60">1 Minute</option>
+                    <option value="120">2 Minutes</option>
+                    <option value="180">3 Minutes</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>AI Difficulty:</label>
+                <select id="ai-select">
+                    <option value="0.5">Amateur</option>
+                    <option value="0.8" selected>Pro</option>
+                    <option value="1.5">Legendary</option>
+                </select>
+            </div>
+            <hr style="border:1px solid rgba(255,255,255,0.2); margin: 20px 0;">
+            <div class="form-group">
+                <label style="color:#3498db;">Home Team (P1):</label>
+                <input type="text" id="p1-team" value="Madrid">
+            </div>
+            <div class="form-group">
+                <label style="color:#e74c3c;">Away Team (P2/AI):</label>
+                <input type="text" id="p2-team" value="Manchester">
+            </div>
+            <button class="btn" onclick="startMatch()">KICK OFF</button>
+        </div>
+    </div>
+
+    <div id="pause-screen" class="overlay">
+        <div class="pause-content">
+            <h1>PAUSED</h1>
+            <button class="btn" onclick="togglePause()">RESUME</button>
+            <button class="btn secondary" onclick="location.reload()">QUIT TO MENU</button>
+        </div>
+    </div>
+
+    <div id="hud">
+        <div class="scoreboard">
+            <div id="p1-name" class="team-name" style="color:#3498db">P1</div>
+            <span id="p1-score" style="color:#3498db">0</span>
+            <div id="timer">01:00</div>
+            <span id="p2-score" style="color:#e74c3c">0</span>
+            <div id="p2-name" class="team-name" style="color:#e74c3c">CPU</div>
+        </div>
+    </div>
+
+    <div id="msg-board">GOAL!</div>
+    <div id="controls-hint">P1: WASD | P2: Arrows | ESC: Pause</div>
+    
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let gameState = 'menu';
+        let isPaused = false;
+        let mode, timeRemaining, aiDifficulty;
+        let p1Score = 0, p2Score = 0;
+        let lastTime = Date.now();
+        const keys = {};
+        let isGoalScored = false;
+
+        function getTeamColor(name) {
+            const colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f1c40f', '#e67e22', '#ffffff'];
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            return colors[Math.abs(hash) % colors.length];
+        }
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSfx(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+            g.connect(audioCtx.destination); o.connect(g);
+            const now = audioCtx.currentTime;
+            if(type === 'kick') {
+                o.frequency.setValueAtTime(150, now); o.frequency.exponentialRampToValueAtTime(0.01, now + 0.3);
+                g.gain.setValueAtTime(1, now); g.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                o.start(now); o.stop(now + 0.3);
+            } else if (type === 'whistle') {
+                o.type = 'square'; o.frequency.setValueAtTime(800, now); o.frequency.setValueAtTime(1200, now + 0.2);
+                g.gain.setValueAtTime(0.3, now); g.gain.linearRampToValueAtTime(0, now + 0.6);
+                o.start(now); o.stop(now + 0.6);
+            } else if (type === 'goal') {
+                o.type = 'sawtooth'; o.frequency.setValueAtTime(300, now); o.frequency.linearRampToValueAtTime(600, now + 1);
+                g.gain.setValueAtTime(0.3, now); g.gain.linearRampToValueAtTime(0, now + 1.5);
+                o.start(now); o.stop(now + 1.5);
+            }
+        }
+
+        let particles = [];
+        function createExplosion(x, y, color) {
+            for(let i=0; i<30; i++) {
+                particles.push({
+                    x: x, y: y,
+                    vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20,
+                    life: 1.0, color: color, size: Math.random() * 8 + 4
+                });
+            }
+        }
+        function drawParticles() {
+            for(let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.life -= 0.02;
+                if(p.life <= 0) { particles.splice(i, 1); continue; }
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        const groundY = canvas.height - 80;
+
+        class Player {
+            constructor(x, isRight, color, isAI) {
+                this.x = x; this.y = groundY - 50;
+                this.color = color; this.isRight = isRight; this.isAI = isAI;
+                this.velX = 0; this.velY = 0; this.isJumping = false;
+            }
+            draw() {
+                const flip = this.isRight ? -1 : 1;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.fillStyle = this.color;
+                ctx.beginPath(); ctx.roundRect(-20, 0, 40, 50, 10); ctx.fill();
+                ctx.strokeStyle = '#222'; ctx.lineWidth = 8;
+                let walk = this.isJumping ? 0 : Math.sin(Date.now() * 0.015) * 15;
+                ctx.beginPath(); ctx.moveTo(-10, 40); ctx.lineTo(-10 + (this.velX*2), 70 + walk); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(10, 40); ctx.lineTo(10 + (this.velX*2), 70 - walk); ctx.stroke();
+                ctx.fillStyle = '#f1c27d'; 
+                ctx.beginPath(); ctx.arc(0, -35, 40, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(15*flip, -45, 12, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(18*flip, -45, 5, 0, Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+            update() {
+                this.x += this.velX; this.y += this.velY;
+                if (this.y < groundY - 50) this.velY += 1;
+                else { this.y = groundY - 50; this.velY = 0; this.isJumping = false; }
+                this.velX *= 0.85;
+                if(this.x < 40) this.x = 40;
+                if(this.x > canvas.width - 40) this.x = canvas.width - 40;
+            }
+        }
+
+        const ball = {
+            x: canvas.width/2, y: 200, radius: 20, velX: 0, velY: 0, rotation: 0,
+            update() {
+                this.x += this.velX; this.y += this.velY;
+                this.rotation += this.velX * 0.05;
+                if (this.y < groundY - this.radius) this.velY += 0.6;
+                else { this.y = groundY - this.radius; this.velY *= -0.6; this.velX *= 0.96; }
+                if (this.x < this.radius || this.x > canvas.width - this.radius) this.velX *= -0.8;
+            },
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y); ctx.rotate(this.rotation);
+                ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+        };
+
+        let p1, p2;
+
+        function startMatch() {
+            mode = document.getElementById('mode-select').value;
+            timeRemaining = parseInt(document.getElementById('time-select').value);
+            aiDifficulty = parseFloat(document.getElementById('ai-select').value);
+            let t1 = document.getElementById('p1-team').value || "Madrid";
+            let t2 = document.getElementById('p2-team').value || "Manchester";
+            document.getElementById('p1-name').innerText = t1;
+            document.getElementById('p2-name').innerText = t2;
+            p1 = new Player(canvas.width/2 - 200, false, getTeamColor(t1), false);
+            p2 = new Player(canvas.width/2 + 200, true, getTeamColor(t2), mode === '1vAI');
+            document.getElementById('menu-screen').style.display = 'none';
+            document.getElementById('hud').style.display = 'flex';
+            gameState = 'playing';
+            playSfx('whistle');
+            resetCenter();
+            loop();
+        }
+
+        function togglePause() {
+            if (gameState !== 'playing') return;
+            isPaused = !isPaused;
+            document.getElementById('pause-screen').style.display = isPaused ? 'flex' : 'none';
+            if (!isPaused) lastTime = Date.now();
+        }
+
+        window.onkeydown = (e) => { 
+            keys[e.code] = true; 
+            if(e.code === 'Escape') togglePause();
+        };
+        window.onkeyup = (e) => { keys[e.code] = false; };
+
+        function loop() {
+            if (gameState !== 'playing') return;
+            
+            if (!isPaused) {
+                let now = Date.now();
+                if (now - lastTime >= 1000) {
+                    timeRemaining--; lastTime = now;
+                    let m = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
+                    let s = (timeRemaining % 60).toString().padStart(2, '0');
+                    document.getElementById('timer').innerText = `${m}:${s}`;
+                    if (timeRemaining <= 0) { endGame(); return; }
+                }
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#0a3d62'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#27ae60'; ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 4;
+                ctx.strokeRect(0, groundY - 200, 80, 200); ctx.strokeRect(canvas.width - 80, groundY - 200, 80, 200);
+
+                if (keys['KeyA']) { p1.velX -= 2; p1.isRight = true; }
+                if (keys['KeyD']) { p1.velX += 2; p1.isRight = false; }
+                if (keys['KeyW'] && !p1.isJumping) {
+                    if(Math.abs(p1.x - ball.x) < 80 && ball.y > p1.y - 50) {
+                        ball.velX = p1.isRight ? -30 : 30; ball.velY = -15; playSfx('kick');
+                    } else { p1.velY = -16; p1.isJumping = true; }
+                }
+
+                if (p2.isAI) {
+                    let dx = ball.x - p2.x;
+                    if (Math.abs(dx) < 600) {
+                        p2.velX += (dx > 0 ? aiDifficulty : -aiDifficulty);
+                        p2.isRight = dx < 0;
+                        if(Math.abs(dx) < 100 && ball.y < p2.y && !p2.isJumping) { p2.velY = -16; p2.isJumping = true; }
+                    }
+                } else {
+                    if (keys['ArrowLeft']) { p2.velX -= 2; p2.isRight = true; }
+                    if (keys['ArrowRight']) { p2.velX += 2; p2.isRight = false; }
+                    if (keys['ArrowUp'] && !p2.isJumping) {
+                        if(Math.abs(p2.x - ball.x) < 80) { ball.velX = p2.isRight ? -30 : 30; ball.velY = -15; playSfx('kick'); }
+                        else { p2.velY = -16; p2.isJumping = true; }
+                    }
+                }
+
+                p1.update(); p2.update(); ball.update();
+
+                [p1, p2].forEach(p => {
+                    let d = Math.sqrt((ball.x-p.x)**2 + (ball.y-p.y)**2);
+                    if (d < 80 && !p.isJumping) {
+                        ball.x = p.x + (p.velX > 0 ? 50 : -50); ball.velX = p.velX; ball.velY = 0;
+                    }
+                });
+
+                if (!isGoalScored) {
+                    if (ball.x < 80 && ball.y > groundY - 200) handleGoal(2);
+                    if (ball.x > canvas.width - 80 && ball.y > groundY - 200) handleGoal(1);
+                }
+
+                p1.draw(); p2.draw(); ball.draw();
+                drawParticles();
+            }
+            requestAnimationFrame(loop);
+        }
+
+        function handleGoal(scorer) {
+            isGoalScored = true; playSfx('goal');
+            // Restore Explosion Effect
+            createExplosion(ball.x, ball.y, scorer === 1 ? '#3498db' : '#e74c3c');
+            if(scorer === 1) p1Score++; else p2Score++;
+            document.getElementById('p1-score').innerText = p1Score;
+            document.getElementById('p2-score').innerText = p2Score;
+            let mb = document.getElementById('msg-board');
+            mb.style.display = 'block';
+            setTimeout(() => { mb.style.display = 'none'; resetCenter(); }, 2000);
+        }
+
+        function resetCenter() {
+            ball.x = canvas.width / 2; ball.y = 100; ball.velX = 0; ball.velY = 0;
+            p1.x = canvas.width / 2 - 250; p2.x = canvas.width / 2 + 250;
+            isGoalScored = false;
+        }
+
+        function endGame() {
+            gameState = 'over';
+            let mb = document.getElementById('msg-board');
+            mb.style.display = 'block';
+            mb.innerText = p1Score > p2Score ? "PLAYER 1 WINS!" : (p2Score > p1Score ? "PLAYER 2 WINS!" : "DRAW!");
+            setTimeout(() => location.reload(), 5000);
+        }
+
+        window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+    </script>
+</body>
+</html>
