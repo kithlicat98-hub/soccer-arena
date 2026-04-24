@@ -393,6 +393,7 @@
             }
             if (keys['Space'] && !p1.isTackling) { p1.isTackling = true; p1.tackleTimer = 20; p1.velX = p1.isRight ? -25 : 25; }
 
+            // --- LEGENDARY AI LOGIC UPDATED ---
             if (p2.isAI) {
                 let dx = ball.x - p2.x;
                 if (p2.x < ball.x + 40) {
@@ -405,10 +406,18 @@
                     if (Math.abs(dx) < 600) {
                         p2.velX -= aiDifficulty; 
                         p2.isRight = true; 
-                        if (Math.abs(dx) < 100 && ball.y < p2.y - 20 && !p2.isJumping) {
+                        
+                        // NEW LEGENDARY POWER SHOT: If close and is Legendary, trigger dash-shot
+                        if (aiDifficulty >= 1.5 && Math.abs(dx) < 130 && !p2.isTackling) {
+                            p2.isTackling = true; 
+                            p2.tackleTimer = 20; 
+                            p2.velX = -35; // Dash into the ball
+                        } 
+                        else if (Math.abs(dx) < 100 && ball.y < p2.y - 20 && !p2.isJumping) {
                             p2.velY = -16; p2.isJumping = true;
                         }
-                        if (Math.abs(dx) < 70 && ball.y > p2.y - 20 && Math.random() < 0.08 && !p2.isTackling) {
+                        // Non-legendary AI tackle logic
+                        if (aiDifficulty < 1.5 && Math.abs(dx) < 70 && ball.y > p2.y - 20 && Math.random() < 0.08 && !p2.isTackling) {
                             p2.isTackling = true; p2.tackleTimer = 20; p2.velX = -25;
                         }
                     }
@@ -425,12 +434,22 @@
 
             p1.update(); p2.update(); ball.update();
 
+            // --- COLLISION PHYSICS (Modified for AI Power Shot) ---
             [p1, p2].forEach(p => {
                 let dx = ball.x - p.x, dy = ball.y - p.y;
                 let dist = Math.sqrt(dx*dx + dy*dy);
                 
-                if (p.isTackling && dist < 90) {
-                    ball.velX = p.velX * 1.5; ball.velY = -10; playSfx('kick');
+                if (p.isTackling && dist < 95) {
+                    // LEGENDARY AI SPECIAL: If it's the AI and difficulty is Legendary, boost the ball velocity massively
+                    if (p.isAI && aiDifficulty >= 1.5) {
+                        ball.velX = -55; // Sonic speed shot
+                        ball.velY = -5;  // Low profile shot
+                        createExplosion(ball.x, ball.y, '#e74c3c');
+                    } else {
+                        ball.velX = p.velX * 1.5; 
+                        ball.velY = -10; 
+                    }
+                    playSfx('kick');
                 } else if (dist < 80 && Math.abs(p.velX) > 0.5 && !p.isJumping) {
                     ball.x = p.x + (p.velX > 0 ? 50 : -50);
                     ball.velX = p.velX; ball.velY = 0;
