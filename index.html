@@ -27,7 +27,6 @@
         .btn:hover { transform: scale(1.05); background: #f1c40f; }
         .btn:active { transform: scale(0.95); }
         
-        /* Danger button for quitting */
         .btn-danger { background: #e74c3c; color: white; margin-top: 10px; }
         .btn-danger:hover { background: #c0392b; }
         
@@ -68,9 +67,9 @@
             <div class="form-group">
                 <label>AI Difficulty:</label>
                 <select id="ai-select">
-                    <option value="0.5">Amateur</option>
-                    <option value="0.8" selected>Pro</option>
-                    <option value="1.5">Legendary</option>
+                    <option value="1.0">Amateur</option>
+                    <option value="1.8" selected>Pro</option>
+                    <option value="2.5">Legendary</option>
                 </select>
             </div>
 
@@ -126,26 +125,33 @@
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        
+        const renderScale = 0.6; 
+        let vWidth, vHeight, groundY;
 
-        // Game State
-        let gameState = 'menu'; // menu, playing, paused, over
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            vWidth = canvas.width / renderScale;
+            vHeight = canvas.height / renderScale;
+            groundY = vHeight - 80;
+        }
+        resizeCanvas();
+
+        let gameState = 'menu';
         let mode, timeRemaining, aiDifficulty;
         let p1Score = 0, p2Score = 0;
         let lastTime = Date.now();
         const keys = {};
-        
         let isGoalScored = false;
 
         function getTeamColor(name) {
-            const colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f1c40f', '#e67e22', '#ffffff', '#000000'];
+            const colors = ['#3498db', '#e74c3c', '#2ecc7 green', '#9b59b6', '#f1c40f', '#e67e22', '#ffffff', '#000000'];
             let hash = 0;
             for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
             return colors[Math.abs(hash) % colors.length];
         }
 
-        // --- AUDIO ENGINE ---
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playSfx(type) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -168,7 +174,6 @@
             }
         }
 
-        // --- VFX PARTICLE SYSTEM ---
         let particles = [];
         function createExplosion(x, y, color) {
             for(let i=0; i<30; i++) {
@@ -191,9 +196,6 @@
             }
         }
 
-        // --- ENTITIES ---
-        const groundY = canvas.height - 80;
-
         class Player {
             constructor(x, isRight, color, isAI) {
                 this.x = x; this.y = groundY - 50;
@@ -210,11 +212,12 @@
                 const flip = this.isRight ? -1 : 1;
                 ctx.save();
                 ctx.translate(this.x, this.y);
-                
                 if(this.isTackling) ctx.rotate(flip * Math.PI/4);
 
                 ctx.fillStyle = this.color;
-                ctx.beginPath(); ctx.roundRect(-20, 0, 40, 50, 10); ctx.fill(); 
+                ctx.beginPath(); 
+                if(ctx.roundRect) ctx.roundRect(-20, 0, 40, 50, 10); else ctx.rect(-20, 0, 40, 50);
+                ctx.fill(); 
                 
                 ctx.strokeStyle = '#222'; ctx.lineWidth = 8;
                 let walk = this.isJumping || this.isTackling ? 0 : Math.sin(Date.now() * 0.015) * 15;
@@ -233,7 +236,6 @@
 
             update() {
                 this.x += this.velX; this.y += this.velY;
-                
                 if (this.y < groundY - 50) this.velY += 1;
                 else { this.y = groundY - 50; this.velY = 0; this.isJumping = false; }
                 
@@ -245,25 +247,35 @@
                 }
 
                 if(this.x < 40) this.x = 40;
-                if(this.x > canvas.width - 40) this.x = canvas.width - 40;
+                if(this.x > vWidth - 40) this.x = vWidth - 40;
             }
         }
 
         const ball = {
-            x: canvas.width/2, y: 200, radius: 20, velX: 0, velY: 0, rotation: 0,
+            x: 0, y: 0, radius: 20, velX: 0, velY: 0, rotation: 0, owner: null, cooldown: 0,
             update() {
-                this.x += this.velX; this.y += this.velY;
-                this.rotation += this.velX * 0.05;
+                if(this.cooldown > 0) this.cooldown--;
+                if (this.owner) {
+                    let p = this.owner;
+                    let facingFlip = p.isRight ? -1 : 1; 
+                    this.x = p.x + (facingFlip * 35);
+                    this.y = p.y + 10;
+                    this.velX = p.velX;
+                    this.velY = p.velY;
+                } else {
+                    this.x += this.velX; this.y += this.velY;
+                    this.rotation += this.velX * 0.05;
 
-                if (this.y < groundY - this.radius) this.velY += 0.6;
-                else { 
-                    this.y = groundY - this.radius; 
-                    this.velY *= -0.6; 
-                    this.velX *= 0.96; 
-                }
+                    if (this.y < groundY - this.radius) this.velY += 0.6;
+                    else { 
+                        this.y = groundY - this.radius; 
+                        this.velY *= -0.6; 
+                        this.velX *= 0.96; 
+                    }
 
-                if (this.x < this.radius || this.x > canvas.width - this.radius) {
-                    this.velX *= -0.8;
+                    if (this.x < this.radius || this.x > vWidth - this.radius) {
+                        this.velX *= -0.8;
+                    }
                 }
             },
             draw() {
@@ -289,28 +301,27 @@
         let p1, p2;
 
         function drawStadium() {
-            let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            let grad = ctx.createLinearGradient(0, 0, 0, vHeight);
             grad.addColorStop(0, '#0a3d62'); grad.addColorStop(1, '#3c6382');
-            ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, vWidth, vHeight);
 
-            ctx.fillStyle = '#222'; ctx.fillRect(0, canvas.height/2 - 100, canvas.width, 300);
+            ctx.fillStyle = '#222'; ctx.fillRect(0, vHeight/2 - 100, vWidth, 300);
             for(let i=0; i<150; i++) {
                 ctx.fillStyle = ['#e74c3c', '#3498db', '#f1c40f', '#ecf0f1'][Math.floor(Math.random()*4)];
-                let cx = (i * 25) % canvas.width;
-                let cy = canvas.height/2 - 80 + Math.floor(i/ (canvas.width/25)) * 30;
+                let cx = (i * 40) % vWidth;
+                let cy = vHeight/2 - 80 + Math.floor(i/ (vWidth/40)) * 30;
                 ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2); ctx.fill();
             }
 
-            ctx.fillStyle = '#27ae60'; ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+            ctx.fillStyle = '#27ae60'; ctx.fillRect(0, groundY, vWidth, vHeight - groundY);
             ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 10;
-            ctx.beginPath(); ctx.moveTo(0, groundY+40); ctx.lineTo(canvas.width, groundY+40); ctx.stroke(); 
+            ctx.beginPath(); ctx.moveTo(0, groundY+40); ctx.lineTo(vWidth, groundY+40); ctx.stroke(); 
             
             ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.strokeStyle = 'white'; ctx.lineWidth = 6;
             ctx.fillRect(0, groundY - 200, 80, 200); ctx.strokeRect(0, groundY - 200, 80, 200);
-            ctx.fillRect(canvas.width - 80, groundY - 200, 80, 200); ctx.strokeRect(canvas.width - 80, groundY - 200, 80, 200);
+            ctx.fillRect(vWidth - 80, groundY - 200, 80, 200); ctx.strokeRect(vWidth - 80, groundY - 200, 80, 200);
         }
 
-        // --- PAUSE LOGIC ---
         function togglePause() {
             if (gameState === 'playing') {
                 gameState = 'paused';
@@ -318,25 +329,18 @@
             } else if (gameState === 'paused') {
                 gameState = 'playing';
                 document.getElementById('pause-screen').style.display = 'none';
-                lastTime = Date.now(); // Reset time diff so the timer doesn't jump
-                loop(); // Restart the game loop
+                lastTime = Date.now();
+                loop(); 
             }
         }
 
-        // --- INPUT EVENT LISTENERS ---
         window.addEventListener('keydown', (e) => {
             keys[e.code] = true;
-            // Prevent holding the key down from rapidly toggling the menu
-            if (e.code === 'Escape' && !e.repeat) {
-                togglePause();
-            }
+            if (e.code === 'Escape' && !e.repeat) togglePause();
         });
-        
-        window.addEventListener('keyup', (e) => {
-            keys[e.code] = false;
-        });
+        window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+        window.addEventListener('resize', resizeCanvas);
 
-        // --- GAME LOOP ---
         function startMatch() {
             mode = document.getElementById('mode-select').value;
             timeRemaining = parseInt(document.getElementById('time-select').value);
@@ -348,8 +352,8 @@
             document.getElementById('p1-name').innerText = t1;
             document.getElementById('p2-name').innerText = t2;
             
-            p1 = new Player(canvas.width/2 - 250, false, getTeamColor(t1), false);
-            p2 = new Player(canvas.width/2 + 250, true, getTeamColor(t2), mode === '1vAI');
+            p1 = new Player(vWidth/2 - 300, false, getTeamColor(t1), false);
+            p2 = new Player(vWidth/2 + 300, true, getTeamColor(t2), mode === '1vAI');
             
             document.getElementById('menu-screen').style.opacity = '0';
             setTimeout(() => {
@@ -364,7 +368,6 @@
         }
 
         function loop() {
-            // Stop the loop entirely if paused or over
             if (gameState !== 'playing') return;
 
             let now = Date.now();
@@ -373,103 +376,110 @@
                 let m = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
                 let s = (timeRemaining % 60).toString().padStart(2, '0');
                 document.getElementById('timer').innerText = `${m}:${s}`;
-                if (timeRemaining <= 0) {
-                    endGame(); return;
-                }
+                if (timeRemaining <= 0) { endGame(); return; }
             }
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawStadium();
-
-            if (keys['KeyA']) { p1.velX -= 2; p1.isRight = true; } 
-            if (keys['KeyD']) { p1.velX += 2; p1.isRight = false; } 
+            // P1 CONTROLS
+            if (keys['KeyA']) { p1.velX -= 2.2; p1.isRight = true; } 
+            if (keys['KeyD']) { p1.velX += 2.2; p1.isRight = false; } 
             if (keys['KeyW'] && !p1.isJumping) { 
-                if(Math.abs(p1.x - ball.x) < 80 && ball.y > p1.y - 50) {
-                    ball.velX = p1.isRight ? -30 : 30; ball.velY = -15; playSfx('kick');
+                if (ball.owner === p1) {
+                    ball.owner = null; ball.cooldown = 15;
+                    let facingFlip = p1.isRight ? -1 : 1; 
+                    ball.velX = facingFlip * 35; ball.velY = -15; playSfx('kick');
                     createExplosion(ball.x, ball.y, 'white');
-                } else {
-                    p1.velY = -16; p1.isJumping = true; 
-                }
+                } else { p1.velY = -16; p1.isJumping = true; }
             }
             if (keys['Space'] && !p1.isTackling) { p1.isTackling = true; p1.tackleTimer = 20; p1.velX = p1.isRight ? -25 : 25; }
 
-            // --- LEGENDARY AI LOGIC UPDATED ---
+            // --- AI LOGIC ---
             if (p2.isAI) {
                 let dx = ball.x - p2.x;
-                if (p2.x < ball.x + 40) {
-                    p2.velX += aiDifficulty * 1.5; 
-                    p2.isRight = false; 
-                    if (Math.abs(dx) < 80 && ball.y < p2.y - 30 && !p2.isJumping) {
-                        p2.velY = -16; p2.isJumping = true;
+                if (ball.owner === p2) {
+                    p2.velX -= (aiDifficulty + 1.2); 
+                    p2.isRight = true; 
+                    if (p2.x < 400 || Math.abs(p1.x - p2.x) < 100) {
+                        if (!p2.isJumping) {
+                            ball.owner = null; ball.cooldown = 15;
+                            ball.velX = -35 - (aiDifficulty * 5); ball.velY = -15; 
+                            playSfx('kick');
+                        }
                     }
                 } else {
-                    if (Math.abs(dx) < 600) {
-                        p2.velX -= aiDifficulty; 
-                        p2.isRight = true; 
-                        
-                        // NEW LEGENDARY POWER SHOT: If close and is Legendary, trigger dash-shot
-                        if (aiDifficulty >= 1.5 && Math.abs(dx) < 130 && !p2.isTackling) {
-                            p2.isTackling = true; 
-                            p2.tackleTimer = 20; 
-                            p2.velX = -35; // Dash into the ball
-                        } 
-                        else if (Math.abs(dx) < 100 && ball.y < p2.y - 20 && !p2.isJumping) {
-                            p2.velY = -16; p2.isJumping = true;
-                        }
-                        // Non-legendary AI tackle logic
-                        if (aiDifficulty < 1.5 && Math.abs(dx) < 70 && ball.y > p2.y - 20 && Math.random() < 0.08 && !p2.isTackling) {
-                            p2.isTackling = true; p2.tackleTimer = 20; p2.velX = -25;
-                        }
+                    if (dx < -30) { p2.velX -= (aiDifficulty + 1); p2.isRight = true; }
+                    else if (dx > 30) { p2.velX += (aiDifficulty + 1); p2.isRight = false; }
+                    if (Math.abs(dx) < 120 && !p2.isTackling && ball.owner === p1) {
+                        p2.isTackling = true; p2.tackleTimer = 20; p2.velX = (dx > 0) ? 25 : -25;
                     }
                 }
             } else {
-                if (keys['ArrowLeft']) { p2.velX -= 2; p2.isRight = true; }
-                if (keys['ArrowRight']) { p2.velX += 2; p2.isRight = false; }
+                // P2 MANUAL CONTROLS
+                if (keys['ArrowLeft']) { p2.velX -= 2.2; p2.isRight = true; }
+                if (keys['ArrowRight']) { p2.velX += 2.2; p2.isRight = false; }
                 if (keys['ArrowUp'] && !p2.isJumping) { 
-                    if(Math.abs(p2.x - ball.x) < 80) { ball.velX = p2.isRight ? -30 : 30; ball.velY = -15; playSfx('kick'); } 
-                    else { p2.velY = -16; p2.isJumping = true; }
+                    if (ball.owner === p2) {
+                        ball.owner = null; ball.cooldown = 15;
+                        let facingFlip = p2.isRight ? -1 : 1; 
+                        ball.velX = facingFlip * 35; ball.velY = -15; playSfx('kick');
+                        createExplosion(ball.x, ball.y, 'white');
+                    } else { p2.velY = -16; p2.isJumping = true; }
                 }
                 if (keys['Enter'] && !p2.isTackling) { p2.isTackling = true; p2.tackleTimer = 20; p2.velX = p2.isRight ? -25 : 25; }
             }
 
             p1.update(); p2.update(); ball.update();
 
-            // --- COLLISION PHYSICS (Modified for AI Power Shot) ---
-            [p1, p2].forEach(p => {
-                let dx = ball.x - p.x, dy = ball.y - p.y;
-                let dist = Math.sqrt(dx*dx + dy*dy);
-                
-                if (p.isTackling && dist < 95) {
-                    // LEGENDARY AI SPECIAL: If it's the AI and difficulty is Legendary, boost the ball velocity massively
-                    if (p.isAI && aiDifficulty >= 1.5) {
-                        ball.velX = -55; // Sonic speed shot
-                        ball.velY = -5;  // Low profile shot
-                        createExplosion(ball.x, ball.y, '#e74c3c');
-                    } else {
-                        ball.velX = p.velX * 1.5; 
-                        ball.velY = -10; 
-                    }
-                    playSfx('kick');
-                } else if (dist < 80 && Math.abs(p.velX) > 0.5 && !p.isJumping) {
-                    ball.x = p.x + (p.velX > 0 ? 50 : -50);
-                    ball.velX = p.velX; ball.velY = 0;
+            // --- REFINED STEALING AND POSSESSION ---
+            
+            // 1. Stealing logic
+            let pDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+            if (pDist < 75) {
+                if (ball.owner === p1 && p2.isTackling) {
+                    ball.owner = null; ball.cooldown = 5; // Low cooldown so AI can grab it immediately
+                    ball.velX = -20; ball.velY = -10;
+                    playSfx('kick'); createExplosion(ball.x, ball.y, p2.color);
+                } else if (ball.owner === p2 && p1.isTackling) {
+                    ball.owner = null; ball.cooldown = 5;
+                    ball.velX = 20; ball.velY = -10;
+                    playSfx('kick'); createExplosion(ball.x, ball.y, p1.color);
                 }
-            });
+            }
+
+            // 2. Pickup Logic (Fix: Allowed during tackle)
+            if (!ball.owner && ball.cooldown <= 0) {
+                [p1, p2].forEach(p => {
+                    let bDist = Math.hypot(ball.x - p.x, ball.y - p.y);
+                    // AI gets a tiny bit more range to make it feel competitive
+                    let range = p.isAI ? 65 : 55; 
+                    if (bDist < range && !p.isJumping) {
+                        ball.owner = p;
+                        ball.velY = 0;
+                    }
+                });
+            }
 
             if (!isGoalScored) {
                 if (ball.x < 80 && ball.y > groundY - 200) { handleGoal(2); }
-                if (ball.x > canvas.width - 80 && ball.y > groundY - 200) { handleGoal(1); }
+                if (ball.x > vWidth - 80 && ball.y > groundY - 200) { handleGoal(1); }
             }
 
-            p1.draw(); p2.draw(); ball.draw();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.scale(renderScale, renderScale); 
+
+            drawStadium();
+            p1.draw(); 
+            p2.draw(); 
+            ball.draw(); 
             drawParticles();
 
+            ctx.restore();
             requestAnimationFrame(loop);
         }
 
         function handleGoal(scorer) {
-            isGoalScored = true;
-            playSfx('goal');
+            isGoalScored = true; playSfx('goal');
+            ball.owner = null; 
             createExplosion(ball.x, ball.y, scorer === 1 ? '#3498db' : '#e74c3c');
             
             if(scorer === 1) p1Score++; else p2Score++;
@@ -479,37 +489,24 @@
             let mb = document.getElementById('msg-board');
             mb.style.display = 'block'; mb.innerText = "GOAL!";
             
-            setTimeout(() => {
-                mb.style.display = 'none';
-                resetCenter();
-            }, 2000);
+            setTimeout(() => { mb.style.display = 'none'; resetCenter(); }, 2000);
         }
 
         function resetCenter() {
-            ball.x = canvas.width / 2; ball.y = 100; ball.velX = 0; ball.velY = 0;
-            p1.x = canvas.width / 2 - 250; p1.velX = 0; p1.isRight = false;
-            p2.x = canvas.width / 2 + 250; p2.velX = 0; p2.isRight = true;
+            ball.x = vWidth / 2; ball.y = 100; ball.velX = 0; ball.velY = 0; ball.owner = null; ball.cooldown = 0;
+            p1.x = vWidth / 2 - 300; p1.velX = 0; p1.isRight = false; p1.isJumping = false; p1.isTackling = false;
+            p2.x = vWidth / 2 + 300; p2.velX = 0; p2.isRight = true; p2.isJumping = false; p2.isTackling = false;
             isGoalScored = false; 
         }
 
         function endGame() {
-            gameState = 'over';
-            playSfx('whistle');
-            let mb = document.getElementById('msg-board');
-            mb.style.display = 'block';
-            
+            gameState = 'over'; playSfx('whistle');
+            let mb = document.getElementById('msg-board'); mb.style.display = 'block';
             if(p1Score > p2Score) mb.innerText = "PLAYER 1 WINS!";
             else if(p2Score > p1Score) mb.innerText = "PLAYER 2 WINS!";
             else mb.innerText = "DRAW!";
-
             setTimeout(() => location.reload(), 5000); 
         }
-
-        window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        });
-
     </script>
 </body>
 </html>
